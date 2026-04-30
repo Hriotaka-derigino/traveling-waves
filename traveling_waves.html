@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cortical Traveling Waves — ECoG Visualization</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    background: #07070c;
+    color: #e0e0e8;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
+    overflow: hidden;
+    height: 100%;
+    user-select: none;
+  }
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    cursor: crosshair;
+  }
+  .panel {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: rgba(15, 15, 22, 0.78);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 14px;
+    padding: 18px;
+    width: 280px;
+    z-index: 10;
+    font-size: 13px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    transition: opacity 0.25s, transform 0.25s;
+  }
+  .panel.hidden {
+    opacity: 0;
+    transform: translateX(20px);
+    pointer-events: none;
+  }
+  .panel h2 {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #6b6b78;
+    margin-bottom: 16px;
+    font-weight: 600;
+  }
+  .control { margin-bottom: 16px; }
+  .control:last-child { margin-bottom: 0; }
+  .control label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: #9999a8;
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+  .control .value {
+    color: #6da7ff;
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+  }
+  input[type="range"] {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 3px;
+    background: #1f1f2a;
+    border-radius: 2px;
+    outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    background: #6da7ff;
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 8px rgba(109,167,255,0.4);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    background: #6da7ff;
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+  }
+  .wave-types {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .wave-types button {
+    background: #15151f;
+    border: 1px solid rgba(255,255,255,0.05);
+    color: #888894;
+    padding: 9px 4px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 500;
+    transition: all 0.15s;
+    font-family: inherit;
+  }
+  .wave-types button:hover {
+    background: #1d1d28;
+    color: #ddd;
+  }
+  .wave-types button.active {
+    background: rgba(109,167,255,0.12);
+    border-color: rgba(109,167,255,0.35);
+    color: #6da7ff;
+  }
+  .secondary-btn {
+    width: 100%;
+    background: #15151f;
+    border: 1px solid rgba(255,255,255,0.05);
+    color: #888894;
+    padding: 8px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+  .secondary-btn:hover {
+    background: #1d1d28;
+    color: #ddd;
+  }
+  .mode-row label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .mode-row .name {
+    flex: 1;
+    color: #c8c8d2;
+    font-weight: 500;
+  }
+  .mini-toggle {
+    background: #15151f;
+    border: 1px solid rgba(255,255,255,0.05);
+    color: #6b6b78;
+    padding: 2px 7px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 10px;
+    font-family: inherit;
+    transition: all 0.15s;
+  }
+  .mini-toggle:hover { color: #ddd; }
+  .mini-toggle.on {
+    background: rgba(109,167,255,0.12);
+    border-color: rgba(109,167,255,0.3);
+    color: #6da7ff;
+  }
+  .sub-slider {
+    margin-top: 8px;
+    padding-left: 10px;
+    border-left: 2px solid rgba(109,167,255,0.15);
+  }
+  .sub-slider.hidden { display: none; }
+  .sub-slider label {
+    font-size: 11px;
+    color: #6b6b78;
+  }
+  .presets {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .presets button {
+    flex: 1;
+    min-width: 0;
+    background: #15151f;
+    border: 1px solid rgba(255,255,255,0.05);
+    color: #888894;
+    padding: 6px 4px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 10px;
+    font-family: inherit;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .presets button:hover {
+    background: #1d1d28;
+    color: #ddd;
+  }
+  .divider {
+    height: 1px;
+    background: rgba(255,255,255,0.05);
+    margin: 16px 0;
+  }
+  .info {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    color: #4a4a55;
+    font-size: 11px;
+    max-width: 320px;
+    line-height: 1.6;
+    z-index: 10;
+    pointer-events: none;
+  }
+  .info strong {
+    color: #888894;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  .info .ref {
+    color: #3a3a45;
+    font-size: 10px;
+    margin-top: 4px;
+  }
+  .toggle-panel {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: rgba(15, 15, 22, 0.78);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 8px;
+    padding: 8px 14px;
+    color: #888894;
+    cursor: pointer;
+    font-size: 12px;
+    z-index: 11;
+    font-family: inherit;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s;
+  }
+  .toggle-panel.visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .toggle-panel:hover { color: #ddd; }
+  
+  @media (max-width: 600px) {
+    .panel { width: calc(100vw - 40px); }
+    .info { max-width: calc(100vw - 40px); }
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div class="panel" id="panel">
+  <h2>Traveling Wave Modes</h2>
+  
+  <div class="control">
+    <label>Presets</label>
+    <div class="presets">
+      <button data-preset="planar">Planar</button>
+      <button data-preset="conc">Concentric</button>
+      <button data-preset="spiral">Spiral</button>
+      <button data-preset="all">Mixed</button>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+  
+  <div class="control mode-row">
+    <label>
+      <span class="name">Planar</span>
+      <span class="value" id="wPlanarVal">0%</span>
+    </label>
+    <input type="range" id="wPlanar" min="0" max="100" step="5" value="0">
+    <div class="sub-slider" id="dirControl">
+      <label>Direction <span class="value" id="dirVal">30°</span></label>
+      <input type="range" id="direction" min="0" max="360" step="5" value="30">
+    </div>
+  </div>
+
+  <div class="control mode-row">
+    <label>
+      <span class="name">Concentric</span>
+      <button class="mini-toggle on" id="concSign">source</button>
+      <span class="value" id="wConcVal">0%</span>
+    </label>
+    <input type="range" id="wConc" min="0" max="100" step="5" value="0">
+  </div>
+
+  <div class="control mode-row">
+    <label>
+      <span class="name">Spiral</span>
+      <button class="mini-toggle on" id="spiralSign">CCW</button>
+      <span class="value" id="wSpiralVal">0%</span>
+    </label>
+    <input type="range" id="wSpiral" min="0" max="100" step="5" value="0">
+  </div>
+
+  <div class="divider"></div>
+  
+  <div class="control">
+    <label>Frequency <span class="value" id="freqVal">1.5 Hz</span></label>
+    <input type="range" id="freq" min="0.5" max="30" step="0.5" value="1.5">
+  </div>
+  
+  <div class="control">
+    <label>Wavelength <span class="value" id="wlVal">240 px</span></label>
+    <input type="range" id="wavelength" min="60" max="600" step="10" value="240">
+  </div>
+  
+  <div class="control">
+    <button class="secondary-btn" id="hideBtn">Hide Panel</button>
+  </div>
+</div>
+
+<button class="toggle-panel" id="showBtn">Controls</button>
+
+<div class="info">
+  <strong>Cortical Traveling Waves — Mode Mixture</strong><br>
+  Each dot = one ECoG electrode. Real cortical activity is a weighted superposition of multiple wave modes propagating in parallel — slide the weights to mix planar, concentric, and spiral components.
+  <div class="ref">After Das, Zabeh et al. (2024)</div>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+let W, H, DPR;
+function resize() {
+  DPR = window.devicePixelRatio || 1;
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+resize();
+
+const state = {
+  freq: 1.5,
+  wavelength: 240,
+  density: 48,
+  // mode weights (0..1)
+  wPlanar: 0.0,
+  wConc: 0.0,
+  wSpiral: 0.0,
+  // sub-params
+  direction: 30,
+  concSign: -1,    // -1 = source (outward), +1 = sink (inward)
+  spiralSign: -1,  // -1 = CCW outward, +1 = CW outward
+};
+
+let dots = [];
+let spacing = 30; // grid pitch, used to scale dot radius
+function buildGrid() {
+  dots = [];
+  const cols = state.density;
+  const margin = 60;
+  const usableW = W - 2 * margin;
+  const usableH = H - 2 * margin;
+  const sx = usableW / (cols - 1);
+  const rows = Math.max(2, Math.round(usableH / sx) + 1);
+  const sy = usableH / (rows - 1);
+  spacing = Math.min(sx, sy);
+  for (let i = 0; i < cols; i++) {
+    for (let j = 0; j < rows; j++) {
+      dots.push({
+        x: margin + i * sx,
+        y: margin + j * sy,
+      });
+    }
+  }
+}
+buildGrid();
+
+window.addEventListener('resize', () => { resize(); buildGrid(); });
+
+const startTime = performance.now();
+
+function getActivity(x, y, t) {
+  const cx = W / 2;
+  const cy = H / 2;
+  const omega = 2 * Math.PI * state.freq;
+  const k = 2 * Math.PI / state.wavelength;
+  const dx = x - cx, dy = y - cy;
+  const r = Math.sqrt(dx*dx + dy*dy);
+  const angle = Math.atan2(dy, dx);
+
+  const totalW = state.wPlanar + state.wConc + state.wSpiral;
+  if (totalW < 1e-6) return 0.5;
+
+  let signal = 0;
+  if (state.wPlanar > 0) {
+    const theta = state.direction * Math.PI / 180;
+    const phase = omega * t - k * (x * Math.cos(theta) + y * Math.sin(theta));
+    signal += state.wPlanar * Math.sin(phase);
+  }
+  if (state.wConc > 0) {
+    // sign = -1: outward (source). sign = +1: inward (sink)
+    const phase = omega * t + state.concSign * k * r;
+    signal += state.wConc * Math.sin(phase);
+  }
+  if (state.wSpiral > 0) {
+    const phase = omega * t - k * r + state.spiralSign * 2 * angle;
+    signal += state.wSpiral * Math.sin(phase);
+  }
+  // normalize to 0..1
+  return (signal / totalW + 1) / 2;
+}
+
+function draw() {
+  const t = (performance.now() - startTime) / 1000;
+  
+  // background
+  ctx.fillStyle = '#07070c';
+  ctx.fillRect(0, 0, W, H);
+  
+  // two-pass: first soft glow halos for active dots, then crisp dots
+  const maxR = spacing * 0.38;   // peak radius — leaves a clear gap to neighbors
+  const baseR = maxR * 0.28;     // resting radius
+  const glowR = spacing * 0.55;  // halo extent
+
+  ctx.globalCompositeOperation = 'lighter';
+  for (const d of dots) {
+    const a = getActivity(d.x, d.y, t);
+    if (a < 0.3) continue;
+    const intensity = Math.pow((a - 0.3) / 0.7, 1.5);
+    const grad = ctx.createRadialGradient(d.x, d.y, 0, d.x, d.y, glowR);
+    grad.addColorStop(0, `rgba(120, 180, 255, ${0.35 * intensity})`);
+    grad.addColorStop(1, 'rgba(120, 180, 255, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(d.x - glowR, d.y - glowR, glowR * 2, glowR * 2);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  
+  // dots
+  for (const d of dots) {
+    const a = getActivity(d.x, d.y, t);
+    
+    const r = baseR + (maxR - baseR) * a;
+    
+    const alpha = 0.22 + 0.78 * a;
+    const hue = 215 - a * 30;
+    const sat = 65 + a * 25;
+    const light = 38 + a * 38;
+    
+    ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`;
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  
+  requestAnimationFrame(draw);
+}
+draw();
+
+// Controls
+// Mode weight sliders
+function bindWeight(id, valId, key) {
+  const el = document.getElementById(id);
+  const valEl = document.getElementById(valId);
+  el.addEventListener('input', e => {
+    const pct = parseFloat(e.target.value);
+    state[key] = pct / 100;
+    valEl.textContent = Math.round(pct) + '%';
+    updateSubControls();
+  });
+}
+bindWeight('wPlanar', 'wPlanarVal', 'wPlanar');
+bindWeight('wConc',   'wConcVal',   'wConc');
+bindWeight('wSpiral', 'wSpiralVal', 'wSpiral');
+
+// Sub-toggles for concentric (source/sink) and spiral (CCW/CW)
+const concBtn = document.getElementById('concSign');
+concBtn.addEventListener('click', () => {
+  state.concSign = -state.concSign;
+  concBtn.textContent = state.concSign === -1 ? 'source' : 'sink';
+});
+const spiralBtn = document.getElementById('spiralSign');
+spiralBtn.addEventListener('click', () => {
+  state.spiralSign = -state.spiralSign;
+  spiralBtn.textContent = state.spiralSign === -1 ? 'CCW' : 'CW';
+});
+
+function updateSubControls() {
+  document.getElementById('dirControl').classList.toggle('hidden', state.wPlanar <= 0);
+}
+updateSubControls();
+
+// Presets
+const presets = {
+  planar: { wPlanar: 1.0, wConc: 0.0, wSpiral: 0.0 },
+  conc:   { wPlanar: 0.0, wConc: 1.0, wSpiral: 0.0 },
+  spiral: { wPlanar: 0.0, wConc: 0.0, wSpiral: 1.0 },
+  all:    { wPlanar: 0.4, wConc: 0.3, wSpiral: 0.3 },
+};
+function applyWeights(w) {
+  state.wPlanar = w.wPlanar;
+  state.wConc = w.wConc;
+  state.wSpiral = w.wSpiral;
+  document.getElementById('wPlanar').value = w.wPlanar * 100;
+  document.getElementById('wConc').value = w.wConc * 100;
+  document.getElementById('wSpiral').value = w.wSpiral * 100;
+  document.getElementById('wPlanarVal').textContent = Math.round(w.wPlanar * 100) + '%';
+  document.getElementById('wConcVal').textContent = Math.round(w.wConc * 100) + '%';
+  document.getElementById('wSpiralVal').textContent = Math.round(w.wSpiral * 100) + '%';
+  updateSubControls();
+}
+document.querySelectorAll('.presets button').forEach(b => {
+  b.addEventListener('click', () => applyWeights(presets[b.dataset.preset]));
+});
+
+function bindRange(id, valId, key, suffix, parser) {
+  const el = document.getElementById(id);
+  const valEl = document.getElementById(valId);
+  el.addEventListener('input', e => {
+    const v = parser(e.target.value);
+    state[key] = v;
+    valEl.textContent = (typeof v === 'number' && !Number.isInteger(v) ? v.toFixed(1) : v) + suffix;
+    if (key === 'density') buildGrid();
+  });
+}
+bindRange('freq', 'freqVal', 'freq', ' Hz', parseFloat);
+bindRange('wavelength', 'wlVal', 'wavelength', ' px', parseFloat);
+bindRange('direction', 'dirVal', 'direction', '°', parseFloat);
+
+const panel = document.getElementById('panel');
+const showBtn = document.getElementById('showBtn');
+document.getElementById('hideBtn').addEventListener('click', () => {
+  panel.classList.add('hidden');
+  showBtn.classList.add('visible');
+});
+showBtn.addEventListener('click', () => {
+  panel.classList.remove('hidden');
+  showBtn.classList.remove('visible');
+});
+
+// keyboard shortcut: H to toggle panel
+window.addEventListener('keydown', e => {
+  if (e.key === 'h' || e.key === 'H') {
+    if (panel.classList.contains('hidden')) {
+      panel.classList.remove('hidden');
+      showBtn.classList.remove('visible');
+    } else {
+      panel.classList.add('hidden');
+      showBtn.classList.add('visible');
+    }
+  }
+});
+</script>
+</body>
+</html>
